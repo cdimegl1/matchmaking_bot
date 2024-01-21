@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import constants
 import random
 import logging
+from utils import get_display_name
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -14,7 +15,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=commands.DefaultHelpCommand(no_category='Commands'))
 
 queue_num = 0
-names = []
+queued_users = []
 games = []
 matchmaking_mode = mmr.MatchmakingType.balanced 
 
@@ -42,32 +43,32 @@ async def queue(ctx):
     mmr.insert_user_if_new(ctx.author.name)
     msg = ''
     global queue_num
-    if ctx.author.name in [name for game in games for name in game.blue_team + game.red_team]:
+    if ctx.author.name in [user.name for game in games for user in game.blue_team + game.red_team]:
         await ctx.send('you are already in game')
     else:
-        if ctx.author.name not in names:
-            names.append(ctx.author.name)
+        if ctx.author.name not in [user.name for user in queued_users]:
+            queued_users.append(ctx.author)
             queue_num += 1
-            msg += f'{ctx.author.name} has joined the queue\n'
-            msg += f'{queue_num:2d}/10 currently in queue: ' + ', '.join(names) + '\n'
+            msg += f'{get_display_name(ctx.author)} has joined the queue\n'
+            msg += f'{queue_num:2d}/10 currently in queue: ' + ', '.join([get_display_name(user) for user in queued_users]) + '\n'
             await ctx.send(discord.utils.escape_markdown(msg))
             if queue_num == 10:
                 teams = None
                 match matchmaking_mode:
                     case mmr.MatchmakingType.balanced:
-                        teams = mmr.Matchmaking(names).matchmake(mmr.Matchmaking.balanced)
+                        teams = mmr.Matchmaking(queued_users).matchmake(mmr.Matchmaking.balanced)
                     case mmr.MatchmakingType.random:
-                        teams = mmr.Matchmaking(names).matchmake(mmr.Matchmaking.random)
+                        teams = mmr.Matchmaking(queued_users).matchmake(mmr.Matchmaking.random)
                 game = mmr.Game(teams[0][0], teams[1][0], teams[0][1], teams[1][1])
                 games.append(game)
-                names.clear()
+                queued_users.clear()
                 queue_num = 0
                 await ctx.send(game)
         else:
-            names.remove(ctx.author.name)
+            queued_users.remove(ctx.author)
             queue_num -= 1
-            msg += f'{ctx.author.name} has left the queue\n'
-            msg += f'{queue_num:2d}/10 currently in queue: ' + ', '.join(names) + '\n'
+            msg += f'{get_display_name(ctx.author)} has left the queue\n'
+            msg += f'{queue_num:2d}/10 currently in queue: ' + ', '.join([get_display_name(user) for user in queued_users]) + '\n'
             await ctx.send(discord.utils.escape_markdown(msg))
 
 @bot.command(
@@ -90,7 +91,7 @@ async def mode(ctx,
 async def clear(ctx):
     global queue_num
     queue_num = 0
-    names.clear()
+    queued_users.clear()
     await ctx.send('queue has been cleared')
 
 @bot.command(
@@ -99,11 +100,11 @@ async def clear(ctx):
 async def reset(ctx):
     global queue_num
     for game in games:
-        if ctx.author.name in game.blue_team + game.red_team:
+        if ctx.author in game.blue_team + game.red_team:
             games.remove(game)
             break
     queue_num = 0
-    names.clear()
+    queued_users.clear()
     await ctx.send('queue has been reset')
 
 @bot.command(
@@ -121,7 +122,7 @@ async def aram(ctx,
         help='''notifies the bot that the blue team has won the current game
         can only be used by someone that was in the game''')
 async def blue(ctx):
-    user = ctx.author.name
+    user = ctx.author
     for game in games:
         if user in game.blue_team + game.red_team:
             game.update(1)
@@ -132,7 +133,7 @@ async def blue(ctx):
         help='''notifies the bot that the red team has won the current game
         can only be used by someone that was in the game''')
 async def red(ctx):
-    user = ctx.author.name
+    user = ctx.author
     for game in games:
         if user in game.blue_team + game.red_team:
             game.update(0)

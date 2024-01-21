@@ -2,6 +2,7 @@ import sqlite3
 import itertools
 import random
 from enum import IntEnum, auto
+from utils import get_display_name
 
 db = sqlite3.connect('bot.db')
 
@@ -27,17 +28,17 @@ class Game:
         change = mmr_change(self.expected, actual)
         cur = db.cursor()
         for name in self.blue_team:
-            cur.execute('UPDATE mmr SET mmr = mmr + ? WHERE name = ?', (change, name))
             if change > 0:
-                cur.execute('UPDATE mmr SET W = W + 1 WHERE name = ?', (name,))
+                cur.execute('UPDATE mmr SET W = W + 1 WHERE name = ?', (name.name,))
             else:
-                cur.execute('UPDATE mmr SET L = L + 1 WHERE name = ?', (name,))
+                cur.execute('UPDATE mmr SET L = L + 1 WHERE name = ?', (name.name,))
+            cur.execute('UPDATE mmr SET mmr = mmr + ? WHERE name = ?', (change, name.name))
         for name in self.red_team:
             if -change > 0:
-                cur.execute('UPDATE mmr SET W = W + 1 WHERE name = ?', (name,))
+                cur.execute('UPDATE mmr SET W = W + 1 WHERE name = ?', (name.name,))
             else:
-                cur.execute('UPDATE mmr SET L = L + 1 WHERE name = ?', (name,))
-            cur.execute('UPDATE mmr SET mmr = mmr + ? WHERE name = ?', (-change, name))
+                cur.execute('UPDATE mmr SET L = L + 1 WHERE name = ?', (name.name,))
+            cur.execute('UPDATE mmr SET mmr = mmr + ? WHERE name = ?', (-change, name.name))
         db.commit()
 
     def __str__(self) -> str:
@@ -51,11 +52,11 @@ class Game:
         res += line + f'{1 - self.expected:.2%}'.rjust(50 - len(line))
         res += f'\n{"":-^50}\n'
         for blue, red in zip(self.blue_team, self.red_team):
-            blue_mmr = get_mmr(blue)
-            red_mmr = get_mmr(red)
-            line = f'{blue} ({blue_mmr:.0f})'
+            blue_mmr = get_mmr(blue.name)
+            red_mmr = get_mmr(red.name)
+            line = f'{get_display_name(blue)} ({blue_mmr:.0f})'
             length = 50 - len(line)
-            red = f'{red} ({red_mmr:.0f})'
+            red = f'{get_display_name(red)} ({red_mmr:.0f})'
             res += line + red.rjust(length) + '\n'
         res += f'{"":-^50}\n```'
         return res
@@ -82,16 +83,16 @@ def insert_user_if_new(name):
             db.commit()
 
 class Matchmaking:
-    def __init__(self, names) -> None:
-        self.mmrs = {name: get_mmr(name) for name in names}
-        self.names = names
+    def __init__(self, queued_users) -> None:
+        self.mmrs = {user.name: get_mmr(user.name) for user in queued_users}
+        self.users = queued_users
 
     def team_mmr(self, team):
         return sum([self.mmrs[name] for name in team])
         
     def matchmake(self, fun):
-        potential_teams = [team for team in itertools.combinations(self.names, 5)]
-        blue_team, red_team = fun(potential_teams, self.names, self.mmrs)
+        potential_teams = [team for team in itertools.combinations(self.users, 5)]
+        blue_team, red_team = fun(potential_teams, self.users, self.mmrs)
         return (list(blue_team), self.team_mmr(blue_team)), (list(red_team), self.team_mmr(red_team))
         
     @staticmethod
