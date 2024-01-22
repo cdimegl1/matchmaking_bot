@@ -1,4 +1,5 @@
 import typing
+import ranks
 import mmr
 import discord
 from discord.ext import commands
@@ -7,12 +8,15 @@ from dotenv import load_dotenv
 import constants
 import random
 import logging
+import time
 from utils import get_display_name
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=commands.DefaultHelpCommand(no_category='Commands'))
+GUILD_ID = 291303713308672001
 
 queue_num = 0
 queued_users = []
@@ -117,29 +121,29 @@ async def aram(ctx,
         team2 = champs[number:]
         await ctx.send(f'Blue Team: {team1}\nRed Team: {team2}')
 
-#TODO show updates after blue/red command is used
+#TODO show updates after ranks are changed
+def give_win(ctx, blue_win):
+    user = ctx.author
+    for game in games:
+        if user in game.blue_team + game.red_team:
+            game.update(blue_win)
+            games.remove(game)
+            bot.dispatch('ranks_changed', [user.name for user in game.blue_team + game.red_team])
+            break
+
 @bot.command(
         help='''notifies the bot that the blue team has won the current game
         can only be used by someone that was in the game''')
 async def blue(ctx):
-    user = ctx.author
-    for game in games:
-        if user in game.blue_team + game.red_team:
-            game.update(1)
-            games.remove(game)
-            break
+    give_win(ctx, 1)
 
 @bot.command(
         help='''notifies the bot that the red team has won the current game
         can only be used by someone that was in the game''')
 async def red(ctx):
-    user = ctx.author
-    for game in games:
-        if user in game.blue_team + game.red_team:
-            game.update(0)
-            games.remove(game)
-            break
+    give_win(ctx, 0)
 
+# TODO change to use nicknames
 @bot.command(name='mmr',
              help='''gets list of all users sorted by mmr
              if name is provided, gets the user's mmr''')
@@ -164,6 +168,48 @@ async def record(ctx, name: typing.Optional[discord.Member]=commands.parameter(d
     else:
         record = mmr.get_stats(ctx.author.name)
     await ctx.send(f'{record[0]}W - {record[1]}L')
+
+@bot.command(name='ranks', help='''displays all ranks''')
+async def _ranks(ctx):
+    msg = ''
+    for rank in sorted(ranks.ALL_RANKS, reverse=True):
+        match rank.ordering:
+            case ranks.Rank.Ordering.ABSOLUTE:
+                if rank == ranks.DIAMOND:
+                    msg += f'{rank.name} ({rank.r[0]}+)\n'
+                else:
+                    msg += f'{rank.name} ({rank.r[0]} - {rank.r[-1]})\n'
+            case ranks.Rank.Ordering.FIRST:
+                msg += f'{rank.name} (lowest mmr)'
+            case ranks.Rank.Ordering.LAST:
+                msg = f'{rank.name} (highest mmr)\n' + msg
+    await ctx.send(msg)
+
+@bot.event
+async def on_ready():
+    if guild := bot.get_guild(GUILD_ID):
+        await ranks.startup(guild)
+        mmrs = mmr.get_mmrs()
+        for name, rank in ranks.map_ranks(mmrs).items():
+            if member := guild.get_member_named(name):
+                if role := discord.utils.get(guild.roles, name=rank):
+                    await member.add_roles(role)
+                    time.sleep(.05)
+
+@bot.event
+async def on_ranks_changed(names):
+    if guild := bot.get_guild(GUILD_ID):
+        managed_roles = [role for role in guild.roles if role.name in [rank.name for rank in ranks.ALL_RANKS]]
+        for name in names:
+            if member:= guild.get_member_named(name):
+                await member.remove_roles(*managed_roles)
+                time.sleep(.05)
+        mmrs = mmr.get_mmrs()
+        for name, rank in ranks.map_ranks(mmrs).items():
+            if member := guild.get_member_named(name):
+                if role := discord.utils.get(guild.roles, name=rank):
+                    await member.add_roles(role)
+                    time.sleep(.05)
 
 load_dotenv()
 if key := os.getenv('API_KEY'):
