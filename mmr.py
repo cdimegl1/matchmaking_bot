@@ -88,13 +88,14 @@ class Matchmaking:
         self.users = queued_users
 
     def team_mmr(self, team):
-        return sum([self.mmrs[name] for name in team])
+        return sum([self.mmrs[user.name] for user in team])
         
     def matchmake(self, fun):
         potential_teams = [team for team in itertools.combinations(self.users, 5)]
         blue_team, red_team = fun(potential_teams, self.users, self.mmrs)
         return (list(blue_team), self.team_mmr(blue_team)), (list(red_team), self.team_mmr(red_team))
         
+    # i think i fixed this
     @staticmethod
     def random(potential_teams, names, _):
         team1 = random.choice(potential_teams)
@@ -105,9 +106,9 @@ class Matchmaking:
     def balanced(potential_teams, names, mmrs):
         random.shuffle(potential_teams)
         def team_mmr(team):
-            return sum([mmrs[name] for name in team])
+            return sum([mmrs[user.name] for user in team])
         def mmr_difference(team):
-            return abs(team_mmr(team) - team_mmr([name for name in names if name not in team]))
+            return abs(team_mmr(team) - team_mmr([user for user in names if user not in team]))
         team1 = min(potential_teams, key=mmr_difference)
         team2 = [name for name in names if name not in team1]
         return team1, team2

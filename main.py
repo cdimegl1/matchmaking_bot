@@ -16,7 +16,10 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=commands.DefaultHelpCommand(no_category='Commands'))
-GUILD_ID = 291303713308672001
+load_dotenv()
+GUILD_ID = int(os.getenv('GUILD_ID'))
+if GUILD_ID is None:
+    exit(1)
 
 queue_num = 0
 queued_users = []
@@ -121,14 +124,26 @@ async def aram(ctx,
         team2 = champs[number:]
         await ctx.send(f'Blue Team: {team1}\nRed Team: {team2}')
 
-#TODO show updates after ranks are changed
 def give_win(ctx, blue_win):
     user = ctx.author
     for game in games:
         if user in game.blue_team + game.red_team:
+            msg = ''
             game.update(blue_win)
             games.remove(game)
+            mmrs = mmr.get_mmrs()
+            mmrs = [mmr for mmr in mmrs if mmr[0] in game.blue_team + game.red_team]
+            old_ranks = ranks.map_ranks(mmrs)
             bot.dispatch('ranks_changed', [user.name for user in game.blue_team + game.red_team])
+            new_ranks = ranks.map_ranks(mmrs)
+            for name, rank in new_ranks.items():
+                if rank < old_ranks[name]:
+                    user = next(user for user in game.blue_team + game.red_team if user.name == name)
+                    msg += f'{get_display_name(user)} has dropped from {old_ranks[name].name} to {rank.name}'
+                if rank > old_ranks[name]:
+                    user = next(user for user in game.blue_team + game.red_team if user.name == name)
+                    msg += f'{get_display_name(user)} has climbed from {old_ranks[name].name} to {rank.name}'
+            ctx.send(discord.utils.escape_markdown(msg))
             break
 
 @bot.command(
@@ -143,7 +158,6 @@ async def blue(ctx):
 async def red(ctx):
     give_win(ctx, 0)
 
-# TODO change to use nicknames
 @bot.command(name='mmr',
              help='''gets list of all users sorted by mmr
              if name is provided, gets the user's mmr''')
@@ -154,8 +168,14 @@ async def _mmr(ctx, name: typing.Optional[discord.Member]=commands.parameter(des
         res = mmr.get_mmrs()
         res.sort(key=lambda x: x[1], reverse=True)
         msg = ''
-        for i, (name, rating) in enumerate(res):
-            msg += f'{i + 1:2d}: {name} ({rating:.0f})\n'
+        for i, (username, rating) in enumerate(res):
+            if guild := bot.get_guild(GUILD_ID):
+                if member := guild.get_member_named(username):
+                    msg += f'{i + 1:2d}: {get_display_name(member)} ({rating:.0f})\n'
+                else:
+                    msg += f'{i + 1:2d}: {username} ({rating:.0f})\n'
+            else:
+                msg += f'{i + 1:2d}: {username} ({rating:.0f})\n'
         await ctx.send(discord.utils.escape_markdown(msg))
 
 @bot.command(
@@ -192,7 +212,7 @@ async def on_ready():
         mmrs = mmr.get_mmrs()
         for name, rank in ranks.map_ranks(mmrs).items():
             if member := guild.get_member_named(name):
-                if role := discord.utils.get(guild.roles, name=rank):
+                if role := discord.utils.get(guild.roles, name=rank.name):
                     await member.add_roles(role)
                     time.sleep(.05)
 
@@ -207,11 +227,10 @@ async def on_ranks_changed(names):
         mmrs = mmr.get_mmrs()
         for name, rank in ranks.map_ranks(mmrs).items():
             if member := guild.get_member_named(name):
-                if role := discord.utils.get(guild.roles, name=rank):
+                if role := discord.utils.get(guild.roles, name=rank.name):
                     await member.add_roles(role)
                     time.sleep(.05)
 
-load_dotenv()
 if key := os.getenv('API_KEY'):
     bot.run(key)
 
