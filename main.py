@@ -45,37 +45,52 @@ async def on_command_error(ctx, err):
 @bot.command(
         help='''joins/leaves the queue
         when 10 are in queue a game is made
-        if you are not in the database, queueing adds you to it''')
-async def queue(ctx):
+        if you are not in the database, queueing adds you to it
+        you can also specify roles to queue for
+        if you don't specify any roles, you will be queued as fill
+        roles: top, jg, mid, bot, sup''')
+async def queue(ctx, 
+                *args):
+    if args:
+        for role in args:
+            if role not in ['top', 'jg', 'mid', 'bot', 'sup']:
+                raise Exception
     mmr.insert_user_if_new(ctx.author.name)
     msg = ''
+    global queued_users
     global queue_num
     if ctx.author.name in [user.name for game in games for user in game.blue_team + game.red_team]:
         await ctx.send('you are already in game')
     else:
-        if ctx.author.name not in [user.name for user in queued_users]:
-            queued_users.append(ctx.author)
+        if ctx.author.name not in [user[0].name for user in queued_users]:
+            queued_users.append((ctx.author, list(args)))
             queue_num += 1
-            msg += f'{get_display_name(ctx.author)} has joined the queue\n'
-            msg += f'{queue_num:2d}/10 currently in queue: ' + ', '.join([get_display_name(user) for user in queued_users]) + '\n'
+            msg += f"{get_display_name(ctx.author)} ({', '.join(args) if args else 'fill'}) has joined the queue\n"
+            user_strs = [get_display_name(user[0]) + f" ({', '.join(user[1]) if user[1] else 'fill'})" for user in queued_users]
+            msg += f"{queue_num:2d}/10 currently in queue: {', '.join(user_strs)}"
             await ctx.send(discord.utils.escape_markdown(msg))
-            if queue_num == 10:
+            if queue_num >= 10:
                 teams = None
                 match matchmaking_mode:
                     case mmr.MatchmakingType.balanced:
                         teams = mmr.Matchmaking(queued_users).matchmake(mmr.Matchmaking.balanced)
                     case mmr.MatchmakingType.random:
                         teams = mmr.Matchmaking(queued_users).matchmake(mmr.Matchmaking.random)
-                game = mmr.Game(teams[0][0], teams[1][0], teams[0][1], teams[1][1])
-                games.append(game)
-                queued_users.clear()
-                queue_num = 0
-                await ctx.send(game)
+                if teams:
+                    game = mmr.Game(teams[0][0], teams[1][0], teams[0][1], teams[1][1])
+                    games.append(game)
+
+                    queued_users = [user for user in queued_users if user[0] not in game.blue_team + game.red_team]
+                    queue_num -= 10
+                    await ctx.send(game)
+                else:
+                    await ctx.send('can\'t matchmake with current roles')
         else:
-            queued_users.remove(ctx.author)
+            queued_users = [user for user in queued_users if user[0] != ctx.author]
             queue_num -= 1
             msg += f'{get_display_name(ctx.author)} has left the queue\n'
-            msg += f'{queue_num:2d}/10 currently in queue: ' + ', '.join([get_display_name(user) for user in queued_users]) + '\n'
+            user_strs = [get_display_name(user[0]) + f" ({', '.join(user[1]) if user[1] else 'fill'})" for user in queued_users]
+            msg += f"{queue_num:2d}/10 currently in queue: {', '.join(user_strs)}"
             await ctx.send(discord.utils.escape_markdown(msg))
 
 @bot.command(
@@ -124,39 +139,41 @@ async def aram(ctx,
         team2 = champs[number:]
         await ctx.send(f'Blue Team: {team1}\nRed Team: {team2}')
 
-def give_win(ctx, blue_win):
+async def give_win(ctx, blue_win):
     user = ctx.author
     for game in games:
         if user in game.blue_team + game.red_team:
             msg = ''
+            mmrs = mmr.get_mmrs()
+            old_ranks = ranks.map_ranks(mmrs)
             game.update(blue_win)
             games.remove(game)
             mmrs = mmr.get_mmrs()
-            mmrs = [mmr for mmr in mmrs if mmr[0] in game.blue_team + game.red_team]
-            old_ranks = ranks.map_ranks(mmrs)
             bot.dispatch('ranks_changed', [user.name for user in game.blue_team + game.red_team])
             new_ranks = ranks.map_ranks(mmrs)
             for name, rank in new_ranks.items():
                 if rank < old_ranks[name]:
                     user = next(user for user in game.blue_team + game.red_team if user.name == name)
-                    msg += f'{get_display_name(user)} has dropped from {old_ranks[name].name} to {rank.name}'
-                if rank > old_ranks[name]:
+                    msg += f'{get_display_name(user)} has been demoted from {old_ranks[name].name} to {rank.name}\n'
+                if old_ranks[name] < rank:
                     user = next(user for user in game.blue_team + game.red_team if user.name == name)
-                    msg += f'{get_display_name(user)} has climbed from {old_ranks[name].name} to {rank.name}'
-            ctx.send(discord.utils.escape_markdown(msg))
+                    msg += f'{get_display_name(user)} has been promoted from {old_ranks[name].name} to {rank.name}\n'
+            if not msg:
+                msg = 'no ranks have changed'
+            await ctx.send(discord.utils.escape_markdown(msg))
             break
 
 @bot.command(
         help='''notifies the bot that the blue team has won the current game
         can only be used by someone that was in the game''')
 async def blue(ctx):
-    give_win(ctx, 1)
+    await give_win(ctx, 1)
 
 @bot.command(
         help='''notifies the bot that the red team has won the current game
         can only be used by someone that was in the game''')
 async def red(ctx):
-    give_win(ctx, 0)
+    await give_win(ctx, 0)
 
 @bot.command(name='mmr',
              help='''gets list of all users sorted by mmr
@@ -188,6 +205,18 @@ async def record(ctx, name: typing.Optional[discord.Member]=commands.parameter(d
     else:
         record = mmr.get_stats(ctx.author.name)
     await ctx.send(f'{record[0]}W - {record[1]}L')
+
+@bot.command()
+async def shrago(ctx):
+    with open('shrago.png', 'rb') as pic:
+        file = discord.File(pic)
+        await ctx.send(file=file)
+
+@bot.command()
+async def edboy(ctx):
+    with open('edboy.png', 'rb') as pic:
+        file = discord.File(pic)
+        await ctx.send(file=file)
 
 @bot.command(name='ranks', help='''displays all ranks''')
 async def _ranks(ctx):

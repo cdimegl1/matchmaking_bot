@@ -84,34 +84,50 @@ def insert_user_if_new(name):
 
 class Matchmaking:
     def __init__(self, queued_users) -> None:
-        self.mmrs = {user.name: get_mmr(user.name) for user in queued_users}
-        self.users = queued_users
+        self.mmrs = {user[0].name: get_mmr(user[0].name) for user in queued_users}
+        self.users = [user[0] for user in queued_users]
+        self.roles = {user[0]: user[1] for user in queued_users}
 
     def team_mmr(self, team):
         return sum([self.mmrs[user.name] for user in team])
         
     def matchmake(self, fun):
         potential_teams = [team for team in itertools.combinations(self.users, 5)]
-        blue_team, red_team = fun(potential_teams, self.users, self.mmrs)
+        blue_team, red_team = fun(potential_teams, self.users, self.mmrs, self.roles)
         return (list(blue_team), self.team_mmr(blue_team)), (list(red_team), self.team_mmr(red_team))
         
-    # i think i fixed this
     @staticmethod
-    def random(potential_teams, names, _):
+    def random(potential_teams, names, _, roles):
         team1 = random.choice(potential_teams)
         team2 = [name for name in names if name not in team1]
         return team1, team2
 
     @staticmethod
-    def balanced(potential_teams, names, mmrs):
+    def balanced(potential_teams, names, mmrs, roles):
+        potential_teams = list(potential_teams)
         random.shuffle(potential_teams)
         def team_mmr(team):
             return sum([mmrs[user.name] for user in team])
         def mmr_difference(team):
             return abs(team_mmr(team) - team_mmr([user for user in names if user not in team]))
-        team1 = min(potential_teams, key=mmr_difference)
-        team2 = [name for name in names if name not in team1]
-        return team1, team2
+        potential_teams.sort(key=mmr_difference)
+        for team in potential_teams:
+            team2 = [name for name in names if name not in team]
+            if is_valid_team(team, roles) and is_valid_team(team2, roles):
+                return team, team2
+        return None
+
+def is_valid_team(names, roles):
+    names = list(names)
+    random.shuffle(names)
+    for perm in itertools.permutations(names):
+        if (('top' in roles[perm[0]] or not roles[perm[0]]) and
+            ('jg' in roles[perm[1]] or not roles[perm[1]]) and
+            ('mid' in roles[perm[2]] or not roles[perm[2]]) and
+            ('bot' in roles[perm[3]] or not roles[perm[3]]) and
+            ('sup' in roles[perm[4]] or not roles[perm[4]])):
+            return True
+    return False
 
 def manual_game(team1, team2, team1_win: bool):
     mmrs = {}

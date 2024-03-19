@@ -16,20 +16,21 @@ class Rank:
         self.ordering = ordering
 
     def __lt__(self, other):
-        match other.ordering:
-            case Rank.Ordering.FIRST:
-                return False
-            case Rank.Ordering.LAST:
-                return True
         match self.ordering:
             case Rank.Ordering.FIRST:
-                return True
+                if other.ordering != Rank.Ordering.FIRST:
+                    return True
+                return False
             case Rank.Ordering.LAST:
+                if other.ordering != Rank.Ordering.LAST:
+                    return False
                 return False
             case Rank.Ordering.ABSOLUTE:
-                if self.r:
+                if other.ordering == Rank.Ordering.ABSOLUTE:
                     return self.r[0] < other.r[0]
-                else:
+                elif other.ordering == Rank.Ordering.LAST:
+                    return True
+                elif other.ordering == Rank.Ordering.FIRST:
                     return False
 
 CHALLENGED = Rank('Challenged', Color.from_rgb(255, 255, 255), range(-1, 0), Rank.Ordering.FIRST)
@@ -58,7 +59,6 @@ def map_ranks(mmrs):
         name_to_rank[mmrs[0][0]] = next(rank for rank in ALL_RANKS if rank.ordering == Rank.Ordering.FIRST)
     if Rank.Ordering.LAST in [rank.ordering for rank in ALL_RANKS]:
         name_to_rank[mmrs[-1][0]] = next(rank for rank in ALL_RANKS if rank.ordering == Rank.Ordering.LAST)
-    print(name_to_rank)
     return name_to_rank
 
 async def startup(guild: Guild):
@@ -88,6 +88,5 @@ async def startup(guild: Guild):
         first_open +=1
     # bot_role = utils.get(guild.roles, name='matchmaking bot')
     # positions[bot_role] = first_open
-    print(positions)
     await guild.edit_role_positions(positions)
     
