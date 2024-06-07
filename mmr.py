@@ -22,7 +22,7 @@ class Game:
         self.red_team = team2_names
         self.blue_mmr = team1_mmr / 5
         self.red_mmr = team2_mmr / 5
-        self.expected = expected(team1_mmr, team2_mmr)
+        self.expected = expected(team1_mmr / 5, team2_mmr / 5)
 
     def update(self, actual):
         change = mmr_change(self.expected, actual)
