@@ -15,7 +15,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=commands.DefaultHelpCommand(no_category='Commands'))
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=commands.DefaultHelpCommand(no_category='Commands'), case_insensitive=True)
 load_dotenv()
 GUILD_ID = int(os.getenv('GUILD_ID'))
 if GUILD_ID is None:
